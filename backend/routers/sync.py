@@ -1,0 +1,85 @@
+"""Excel sync endpoints."""
+
+from datetime import datetime
+from fastapi import APIRouter, HTTPException
+
+from database import get_db
+from models import SyncStatus, SyncResult
+from services.excel_sync import ExcelSyncService
+
+router = APIRouter()
+
+
+@router.get("/status", response_model=SyncStatus)
+async def get_sync_status():
+    """Get the last sync status."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sync_type, status, records_processed, timestamp
+            FROM sync_log
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+
+        if row:
+            return SyncStatus(
+                last_sync=row[3],
+                sync_type=row[0],
+                status=row[1],
+                records_processed=row[2],
+            )
+        return SyncStatus()
+
+
+@router.post("/import", response_model=SyncResult)
+async def import_from_excel():
+    """Import data from Excel file into the database."""
+    try:
+        service = ExcelSyncService()
+        result = service.import_from_excel()
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+@router.post("/export", response_model=SyncResult)
+async def export_to_excel():
+    """Export database changes to the Excel file."""
+    try:
+        service = ExcelSyncService()
+        result = service.export_to_excel()
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
+@router.get("/log")
+async def get_sync_log(limit: int = 20):
+    """Get recent sync log entries."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, sync_type, status, records_processed, timestamp, details
+            FROM sync_log
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (limit,))
+        rows = cursor.fetchall()
+
+        return [
+            {
+                "id": row[0],
+                "sync_type": row[1],
+                "status": row[2],
+                "records_processed": row[3],
+                "timestamp": row[4],
+                "details": row[5],
+            }
+            for row in rows
+        ]
