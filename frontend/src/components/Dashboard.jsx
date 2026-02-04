@@ -17,6 +17,7 @@ import {
   Clock,
   CheckCircle,
   AlertTriangle,
+  Truck,
 } from 'lucide-react';
 import { dashboard } from '../services/api';
 
@@ -51,6 +52,7 @@ export default function Dashboard() {
   const [weeklyVolume, setWeeklyVolume] = useState([]);
   const [carrierData, setCarrierData] = useState([]);
   const [customerData, setCustomerData] = useState([]);
+  const [autozonePallets, setAutozonePallets] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -59,17 +61,19 @@ export default function Dashboard() {
 
   const loadDashboardData = async () => {
     try {
-      const [statsData, weekly, carriers, customers] = await Promise.all([
+      const [statsData, weekly, carriers, customers, autozone] = await Promise.all([
         dashboard.getStats(),
         dashboard.getWeeklyVolume(),
         dashboard.getShipmentsByCarrier(),
         dashboard.getShipmentsByCustomer(),
+        dashboard.getAutozonePallets(),
       ]);
 
       setStats(statsData);
       setWeeklyVolume(weekly);
       setCarrierData(carriers.slice(0, 6));
       setCustomerData(customers.slice(0, 6));
+      setAutozonePallets(autozone);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -171,16 +175,47 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* This Week Summary */}
-      <div className="card">
-        <div className="flex items-center gap-2 mb-4">
-          <CheckCircle className="w-5 h-5 text-green-600" />
-          <h3 className="text-lg font-semibold">This Week</h3>
+      {/* Bottom Row - This Week & AutoZone Pallets */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* This Week Summary */}
+        <div className="card">
+          <div className="flex items-center gap-2 mb-4">
+            <CheckCircle className="w-5 h-5 text-green-600" />
+            <h3 className="text-lg font-semibold">This Week</h3>
+          </div>
+          <p className="text-3xl font-bold text-gray-900">
+            {stats?.shipments_this_week || 0}
+            <span className="text-lg font-normal text-gray-500 ml-2">total shipments</span>
+          </p>
         </div>
-        <p className="text-3xl font-bold text-gray-900">
-          {stats?.shipments_this_week || 0}
-          <span className="text-lg font-normal text-gray-500 ml-2">total shipments</span>
-        </p>
+
+        {/* AutoZone Pallets */}
+        <div className="card">
+          <div className="flex items-center gap-2 mb-4">
+            <Truck className="w-5 h-5 text-orange-600" />
+            <h3 className="text-lg font-semibold">AutoZone Pallets</h3>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm text-gray-500">
+                Shipped so far in {autozonePallets?.current_month_name || 'this month'}
+              </p>
+              <p className="text-3xl font-bold text-gray-900">
+                {autozonePallets?.current_month_pallets?.toLocaleString() || 0}
+                <span className="text-lg font-normal text-gray-500 ml-2">pallets</span>
+              </p>
+            </div>
+            <div className="border-t pt-3">
+              <p className="text-sm text-gray-500">
+                Total in {autozonePallets?.previous_month_name || 'last month'}
+              </p>
+              <p className="text-xl font-semibold text-gray-700">
+                {autozonePallets?.previous_month_pallets?.toLocaleString() || 0}
+                <span className="text-sm font-normal text-gray-500 ml-2">pallets</span>
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

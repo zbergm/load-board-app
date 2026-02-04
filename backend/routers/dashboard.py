@@ -233,3 +233,53 @@ async def get_overdue_shipments():
             "inbound": inbound,
             "outbound": outbound,
         }
+
+
+@router.get("/autozone-pallets")
+async def get_autozone_pallets():
+    """Get AutoZone pallet counts for current and previous month."""
+    today = date.today()
+
+    # Current month boundaries
+    current_month_start = today.replace(day=1).isoformat()
+    current_month_name = today.strftime("%B")
+
+    # Previous month boundaries
+    first_of_current = today.replace(day=1)
+    last_of_previous = first_of_current - timedelta(days=1)
+    previous_month_start = last_of_previous.replace(day=1).isoformat()
+    previous_month_end = last_of_previous.isoformat()
+    previous_month_name = last_of_previous.strftime("%B")
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Current month AutoZone pallets (shipped only)
+        cursor.execute("""
+            SELECT COALESCE(SUM(pallets), 0)
+            FROM outbound_shipments
+            WHERE LOWER(customer) LIKE '%autozone%'
+              AND shipped = 1
+              AND (actual_date >= ? OR (actual_date IS NULL AND ship_date >= ?))
+        """, (current_month_start, current_month_start))
+        current_month_pallets = cursor.fetchone()[0] or 0
+
+        # Previous month AutoZone pallets (shipped only)
+        cursor.execute("""
+            SELECT COALESCE(SUM(pallets), 0)
+            FROM outbound_shipments
+            WHERE LOWER(customer) LIKE '%autozone%'
+              AND shipped = 1
+              AND (
+                (actual_date >= ? AND actual_date <= ?)
+                OR (actual_date IS NULL AND ship_date >= ? AND ship_date <= ?)
+              )
+        """, (previous_month_start, previous_month_end, previous_month_start, previous_month_end))
+        previous_month_pallets = cursor.fetchone()[0] or 0
+
+        return {
+            "current_month_name": current_month_name,
+            "current_month_pallets": float(current_month_pallets),
+            "previous_month_name": previous_month_name,
+            "previous_month_pallets": float(previous_month_pallets),
+        }

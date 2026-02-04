@@ -25,6 +25,7 @@ export const dashboard = {
   getWeeklyVolume: () => fetchAPI('/dashboard/weekly-volume'),
   getTodayShipments: () => fetchAPI('/dashboard/today'),
   getOverdueShipments: () => fetchAPI('/dashboard/overdue'),
+  getAutozonePallets: () => fetchAPI('/dashboard/autozone-pallets'),
 };
 
 // Inbound Shipments
