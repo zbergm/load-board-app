@@ -30,15 +30,16 @@ class ExcelSyncService:
     """Service for syncing data between Excel and SQLite database."""
 
     def __init__(self):
+        import os
         self.excel_path = EXCEL_FILE_PATH
         self.backup_dir = BACKUP_DIR
         self.sharepoint_url = SHAREPOINT_EXCEL_URL
-        # Microsoft Graph settings
-        self.graph_tenant_id = GRAPH_TENANT_ID
-        self.graph_client_id = GRAPH_CLIENT_ID
-        self.graph_client_secret = GRAPH_CLIENT_SECRET
-        self.sharepoint_file_path = SHAREPOINT_FILE_PATH
-        self.sharepoint_user = SHAREPOINT_USER
+        # Microsoft Graph settings - read at runtime to ensure env vars are loaded
+        self.graph_tenant_id = os.environ.get("GRAPH_TENANT_ID", "") or GRAPH_TENANT_ID
+        self.graph_client_id = os.environ.get("GRAPH_CLIENT_ID", "") or GRAPH_CLIENT_ID
+        self.graph_client_secret = os.environ.get("GRAPH_CLIENT_SECRET", "") or GRAPH_CLIENT_SECRET
+        self.sharepoint_file_path = os.environ.get("SHAREPOINT_FILE_PATH", "") or SHAREPOINT_FILE_PATH
+        self.sharepoint_user = os.environ.get("SHAREPOINT_USER", "") or SHAREPOINT_USER
 
     def _get_graph_access_token(self) -> Optional[str]:
         """Get Microsoft Graph API access token using client credentials."""

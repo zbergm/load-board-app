@@ -90,24 +90,27 @@ async def get_sharepoint_status():
     """Check if SharePoint upload is configured."""
     import os
     from services.excel_sync import MSAL_AVAILABLE
-    from config import (
-        GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET,
-        SHAREPOINT_FILE_PATH, SHAREPOINT_USER
-    )
 
     service = ExcelSyncService()
     is_configured = service.is_sharepoint_upload_configured()
 
+    # Read directly from environment for debugging
+    tenant_id = os.environ.get("GRAPH_TENANT_ID", "")
+    client_id = os.environ.get("GRAPH_CLIENT_ID", "")
+    client_secret = os.environ.get("GRAPH_CLIENT_SECRET", "")
+
     # Detailed status for debugging
     details = {
         "msal_available": MSAL_AVAILABLE,
-        "has_tenant_id": bool(GRAPH_TENANT_ID),
-        "has_client_id": bool(GRAPH_CLIENT_ID),
-        "has_client_secret": bool(GRAPH_CLIENT_SECRET),
-        "has_file_path": bool(SHAREPOINT_FILE_PATH),
-        "has_user": bool(SHAREPOINT_USER),
-        "file_path": SHAREPOINT_FILE_PATH,
-        "user": SHAREPOINT_USER,
+        "has_tenant_id": bool(tenant_id),
+        "has_client_id": bool(client_id),
+        "has_client_secret": bool(client_secret),
+        "has_file_path": bool(service.sharepoint_file_path),
+        "has_user": bool(service.sharepoint_user),
+        "file_path": service.sharepoint_file_path,
+        "user": service.sharepoint_user,
+        "tenant_id_preview": tenant_id[:8] + "..." if tenant_id else "(not set)",
+        "client_id_preview": client_id[:8] + "..." if client_id else "(not set)",
     }
 
     return {
