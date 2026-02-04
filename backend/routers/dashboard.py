@@ -237,19 +237,14 @@ async def get_overdue_shipments():
 
 @router.get("/autozone-pallets")
 async def get_autozone_pallets():
-    """Get AutoZone pallet counts for current and previous month."""
+    """Get AutoZone pallet counts for current month and all previous months this year."""
     today = date.today()
+    current_year = today.year
 
     # Current month boundaries
     current_month_start = today.replace(day=1).isoformat()
     current_month_name = today.strftime("%B")
-
-    # Previous month boundaries
-    first_of_current = today.replace(day=1)
-    last_of_previous = first_of_current - timedelta(days=1)
-    previous_month_start = last_of_previous.replace(day=1).isoformat()
-    previous_month_end = last_of_previous.isoformat()
-    previous_month_name = last_of_previous.strftime("%B")
+    current_month_num = today.month
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -265,22 +260,39 @@ async def get_autozone_pallets():
         """, (current_month_start, current_month_start))
         current_month_pallets = cursor.fetchone()[0] or 0
 
-        # Previous month AutoZone pallets (shipped only)
-        cursor.execute("""
-            SELECT COALESCE(SUM(pallets), 0)
-            FROM outbound_shipments
-            WHERE LOWER(REPLACE(customer, ' ', '')) LIKE '%autozone%'
-              AND shipped = 1
-              AND (
-                (actual_date >= ? AND actual_date <= ?)
-                OR (actual_date IS NULL AND ship_date >= ? AND ship_date <= ?)
-              )
-        """, (previous_month_start, previous_month_end, previous_month_start, previous_month_end))
-        previous_month_pallets = cursor.fetchone()[0] or 0
+        # Get all previous months this year (January through previous month)
+        previous_months = []
+        for month_num in range(1, current_month_num):
+            # Calculate month boundaries
+            month_start = date(current_year, month_num, 1)
+            if month_num == 12:
+                month_end = date(current_year, 12, 31)
+            else:
+                month_end = date(current_year, month_num + 1, 1) - timedelta(days=1)
+
+            month_name = month_start.strftime("%B")
+
+            cursor.execute("""
+                SELECT COALESCE(SUM(pallets), 0)
+                FROM outbound_shipments
+                WHERE LOWER(REPLACE(customer, ' ', '')) LIKE '%autozone%'
+                  AND shipped = 1
+                  AND (
+                    (actual_date >= ? AND actual_date <= ?)
+                    OR (actual_date IS NULL AND ship_date >= ? AND ship_date <= ?)
+                  )
+            """, (month_start.isoformat(), month_end.isoformat(),
+                  month_start.isoformat(), month_end.isoformat()))
+            month_pallets = cursor.fetchone()[0] or 0
+
+            previous_months.append({
+                "month_name": month_name,
+                "pallets": float(month_pallets),
+            })
 
         return {
             "current_month_name": current_month_name,
             "current_month_pallets": float(current_month_pallets),
-            "previous_month_name": previous_month_name,
-            "previous_month_pallets": float(previous_month_pallets),
+            "previous_months": previous_months,
+            "year": current_year,
         }

@@ -193,7 +193,7 @@ export default function Dashboard() {
         <div className="card">
           <div className="flex items-center gap-2 mb-4">
             <Truck className="w-5 h-5 text-orange-600" />
-            <h3 className="text-lg font-semibold">AutoZone Pallets</h3>
+            <h3 className="text-lg font-semibold">AutoZone Pallets {autozonePallets?.year}</h3>
           </div>
           <div className="space-y-3">
             <div>
@@ -205,15 +205,18 @@ export default function Dashboard() {
                 <span className="text-lg font-normal text-gray-500 ml-2">pallets</span>
               </p>
             </div>
-            <div className="border-t pt-3">
-              <p className="text-sm text-gray-500">
-                Total in {autozonePallets?.previous_month_name || 'last month'}
-              </p>
-              <p className="text-xl font-semibold text-gray-700">
-                {autozonePallets?.previous_month_pallets?.toLocaleString() || 0}
-                <span className="text-sm font-normal text-gray-500 ml-2">pallets</span>
-              </p>
-            </div>
+            {autozonePallets?.previous_months?.length > 0 && (
+              <div className="border-t pt-3 space-y-2">
+                {autozonePallets.previous_months.map((month) => (
+                  <div key={month.month_name} className="flex justify-between items-center">
+                    <span className="text-sm text-gray-500">Total in {month.month_name}</span>
+                    <span className="text-sm font-semibold text-gray-700">
+                      {month.pallets.toLocaleString()} pallets
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
