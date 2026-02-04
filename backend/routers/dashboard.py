@@ -255,10 +255,11 @@ async def get_autozone_pallets():
         cursor = conn.cursor()
 
         # Current month AutoZone pallets (shipped only)
+        # Match "Auto Zone" or "AutoZone" (case insensitive)
         cursor.execute("""
             SELECT COALESCE(SUM(pallets), 0)
             FROM outbound_shipments
-            WHERE LOWER(customer) LIKE '%autozone%'
+            WHERE LOWER(REPLACE(customer, ' ', '')) LIKE '%autozone%'
               AND shipped = 1
               AND (actual_date >= ? OR (actual_date IS NULL AND ship_date >= ?))
         """, (current_month_start, current_month_start))
@@ -268,7 +269,7 @@ async def get_autozone_pallets():
         cursor.execute("""
             SELECT COALESCE(SUM(pallets), 0)
             FROM outbound_shipments
-            WHERE LOWER(customer) LIKE '%autozone%'
+            WHERE LOWER(REPLACE(customer, ' ', '')) LIKE '%autozone%'
               AND shipped = 1
               AND (
                 (actual_date >= ? AND actual_date <= ?)
