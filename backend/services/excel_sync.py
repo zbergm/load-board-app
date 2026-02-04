@@ -10,9 +10,20 @@ from urllib.parse import urlparse, parse_qs
 
 from openpyxl import load_workbook
 
-from config import EXCEL_FILE_PATH, BACKUP_DIR, SHAREPOINT_EXCEL_URL
+from config import (
+    EXCEL_FILE_PATH, BACKUP_DIR, SHAREPOINT_EXCEL_URL,
+    GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET,
+    SHAREPOINT_FILE_PATH, SHAREPOINT_USER
+)
 from database import get_db
 from models import SyncResult
+
+# Try to import msal for Microsoft Graph authentication
+try:
+    import msal
+    MSAL_AVAILABLE = True
+except ImportError:
+    MSAL_AVAILABLE = False
 
 
 class ExcelSyncService:
@@ -22,6 +33,91 @@ class ExcelSyncService:
         self.excel_path = EXCEL_FILE_PATH
         self.backup_dir = BACKUP_DIR
         self.sharepoint_url = SHAREPOINT_EXCEL_URL
+        # Microsoft Graph settings
+        self.graph_tenant_id = GRAPH_TENANT_ID
+        self.graph_client_id = GRAPH_CLIENT_ID
+        self.graph_client_secret = GRAPH_CLIENT_SECRET
+        self.sharepoint_file_path = SHAREPOINT_FILE_PATH
+        self.sharepoint_user = SHAREPOINT_USER
+
+    def _get_graph_access_token(self) -> Optional[str]:
+        """Get Microsoft Graph API access token using client credentials."""
+        if not MSAL_AVAILABLE:
+            print("MSAL library not available")
+            return None
+
+        if not all([self.graph_tenant_id, self.graph_client_id, self.graph_client_secret]):
+            print("Microsoft Graph credentials not configured")
+            return None
+
+        try:
+            app = msal.ConfidentialClientApplication(
+                self.graph_client_id,
+                authority=f"https://login.microsoftonline.com/{self.graph_tenant_id}",
+                client_credential=self.graph_client_secret,
+            )
+
+            result = app.acquire_token_silent(
+                scopes=["https://graph.microsoft.com/.default"],
+                account=None
+            )
+
+            if not result:
+                result = app.acquire_token_for_client(
+                    scopes=["https://graph.microsoft.com/.default"]
+                )
+
+            if "access_token" in result:
+                return result["access_token"]
+            else:
+                print(f"Failed to get token: {result.get('error_description', 'Unknown error')}")
+                return None
+
+        except Exception as e:
+            print(f"Error getting Graph token: {e}")
+            return None
+
+    def _upload_to_sharepoint(self, file_path: Path) -> tuple[bool, str]:
+        """Upload file to SharePoint/OneDrive using Microsoft Graph API."""
+        token = self._get_graph_access_token()
+        if not token:
+            return False, "Could not get Microsoft Graph access token. Check credentials."
+
+        try:
+            # Read the file content
+            with open(file_path, 'rb') as f:
+                file_content = f.read()
+
+            # Construct the upload URL for OneDrive
+            # Format: /users/{user-id}/drive/root:/{path}:/content
+            encoded_path = self.sharepoint_file_path.replace(" ", "%20")
+            upload_url = f"https://graph.microsoft.com/v1.0/users/{self.sharepoint_user}/drive/root:/{encoded_path}:/content"
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            }
+
+            response = requests.put(upload_url, headers=headers, data=file_content, timeout=120)
+
+            if response.status_code in [200, 201]:
+                return True, "Successfully uploaded to SharePoint"
+            else:
+                error_msg = response.json().get("error", {}).get("message", response.text)
+                return False, f"Upload failed: {error_msg}"
+
+        except Exception as e:
+            return False, f"Upload error: {str(e)}"
+
+    def is_sharepoint_upload_configured(self) -> bool:
+        """Check if SharePoint upload is properly configured."""
+        return MSAL_AVAILABLE and all([
+            self.graph_tenant_id,
+            self.graph_client_id,
+            self.graph_client_secret,
+            self.sharepoint_file_path,
+            self.sharepoint_user
+        ])
 
     def _convert_sharepoint_to_download_url(self, sharing_url: str) -> str:
         """Convert a OneDrive/SharePoint sharing URL to a direct download URL."""
@@ -583,8 +679,19 @@ class ExcelSyncService:
                     errors=["Original file was locked, saved to backup location"]
                 )
 
-            # Replace original with updated temp file
+            # Replace original with updated temp file (for local backup)
             shutil.copy2(temp_path, self.excel_path)
+
+            # Try to upload to SharePoint if configured
+            sharepoint_status = ""
+            if self.is_sharepoint_upload_configured():
+                upload_success, upload_msg = self._upload_to_sharepoint(temp_path)
+                if upload_success:
+                    sharepoint_status = " and uploaded to SharePoint"
+                else:
+                    errors.append(f"SharePoint upload failed: {upload_msg}")
+                    sharepoint_status = " (SharePoint upload failed - saved locally)"
+
             temp_path.unlink(missing_ok=True)
 
             # Update synced_at for all records
@@ -595,11 +702,11 @@ class ExcelSyncService:
                 cursor.execute("UPDATE outbound_shipments SET synced_at = ?", (now,))
                 conn.commit()
 
-            self._log_sync("export", "success", records_processed)
+            self._log_sync("export", "success", records_processed, sharepoint_status)
 
             return SyncResult(
                 success=True,
-                message=f"Successfully exported {records_processed} records",
+                message=f"Successfully exported {records_processed} records{sharepoint_status}",
                 records_processed=records_processed,
                 errors=errors
             )

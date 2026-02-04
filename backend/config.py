@@ -17,6 +17,30 @@ SHAREPOINT_EXCEL_URL = os.environ.get(
     "https://ellingsonclassiccars-my.sharepoint.com/:x:/g/personal/zach_b_ellingsonmotorcars_com/IQCA6qYdYNn6TrW8Qt2YjHOwAZU_-KDN1Af6QsSF4HbFa_4?e=g6PSSD"
 )
 
+# Microsoft Graph API settings for SharePoint upload
+# To set up:
+# 1. Go to Azure Portal > Azure Active Directory > App registrations
+# 2. Create new registration (e.g., "Load Board App")
+# 3. Add API permission: Microsoft Graph > Files.ReadWrite.All (Application)
+# 4. Create a client secret under Certificates & secrets
+# 5. Set the environment variables below
+GRAPH_TENANT_ID = os.environ.get("GRAPH_TENANT_ID", "")
+GRAPH_CLIENT_ID = os.environ.get("GRAPH_CLIENT_ID", "")
+GRAPH_CLIENT_SECRET = os.environ.get("GRAPH_CLIENT_SECRET", "")
+
+# OneDrive path for the Excel file (relative to user's OneDrive root)
+# Example: "Desktop/Operations Data/Load Board 2026.xlsx"
+SHAREPOINT_FILE_PATH = os.environ.get(
+    "SHAREPOINT_FILE_PATH",
+    "Desktop/Operations Data/Load Board 2026.xlsx"
+)
+
+# User principal name (email) for the OneDrive owner
+SHAREPOINT_USER = os.environ.get(
+    "SHAREPOINT_USER",
+    "zach_b@ellingsonmotorcars.com"
+)
+
 # Backup directory for Excel files
 BACKUP_DIR = BASE_DIR / "backups"
 

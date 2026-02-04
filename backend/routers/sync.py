@@ -83,3 +83,15 @@ async def get_sync_log(limit: int = 20):
             }
             for row in rows
         ]
+
+
+@router.get("/sharepoint-status")
+async def get_sharepoint_status():
+    """Check if SharePoint upload is configured."""
+    service = ExcelSyncService()
+    is_configured = service.is_sharepoint_upload_configured()
+
+    return {
+        "configured": is_configured,
+        "message": "SharePoint upload is configured" if is_configured else "SharePoint upload not configured. Set GRAPH_TENANT_ID, GRAPH_CLIENT_ID, and GRAPH_CLIENT_SECRET environment variables."
+    }
