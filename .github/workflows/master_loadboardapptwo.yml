@@ -42,7 +42,7 @@ jobs:
       - name: Install dependencies to package directory
         run: |
           cd backend
-          pip install --target=.python_packages/lib/site-packages -r requirements.txt
+          pip install --target=__oryx_packages__ -r requirements.txt
 
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
