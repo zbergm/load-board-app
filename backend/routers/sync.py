@@ -88,10 +88,30 @@ async def get_sync_log(limit: int = 20):
 @router.get("/sharepoint-status")
 async def get_sharepoint_status():
     """Check if SharePoint upload is configured."""
+    import os
+    from services.excel_sync import MSAL_AVAILABLE
+    from config import (
+        GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET,
+        SHAREPOINT_FILE_PATH, SHAREPOINT_USER
+    )
+
     service = ExcelSyncService()
     is_configured = service.is_sharepoint_upload_configured()
 
+    # Detailed status for debugging
+    details = {
+        "msal_available": MSAL_AVAILABLE,
+        "has_tenant_id": bool(GRAPH_TENANT_ID),
+        "has_client_id": bool(GRAPH_CLIENT_ID),
+        "has_client_secret": bool(GRAPH_CLIENT_SECRET),
+        "has_file_path": bool(SHAREPOINT_FILE_PATH),
+        "has_user": bool(SHAREPOINT_USER),
+        "file_path": SHAREPOINT_FILE_PATH,
+        "user": SHAREPOINT_USER,
+    }
+
     return {
         "configured": is_configured,
-        "message": "SharePoint upload is configured" if is_configured else "SharePoint upload not configured. Set GRAPH_TENANT_ID, GRAPH_CLIENT_ID, and GRAPH_CLIENT_SECRET environment variables."
+        "message": "SharePoint upload is configured" if is_configured else "SharePoint upload not configured. Check details below.",
+        "details": details
     }
