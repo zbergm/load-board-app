@@ -61,6 +61,8 @@ export default function OutboundTable({ shipments, pagination, onPageChange, onR
 
   const isPendingRouting = (shipment) => {
     if (isShipped(shipment)) return false;
+    // Must have an order_number to be considered Pending Routing
+    if (!shipment.order_number) return false;
     return !shipment.reference_number || !shipment.ship_date || !shipment.carrier;
   };
 

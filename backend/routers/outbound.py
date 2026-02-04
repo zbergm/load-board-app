@@ -63,7 +63,8 @@ async def get_outbound_shipments(
         if pending_routing is not None:
             if pending_routing:
                 # Filter for shipments missing reference_number, ship_date, or carrier
-                routing_clause = " AND (reference_number IS NULL OR reference_number = '' OR ship_date IS NULL OR carrier IS NULL OR carrier = '')"
+                # Must have order_number to be considered Pending Routing
+                routing_clause = " AND order_number IS NOT NULL AND order_number != '' AND (reference_number IS NULL OR reference_number = '' OR ship_date IS NULL OR carrier IS NULL OR carrier = '')"
             else:
                 # Filter for shipments that have all routing info
                 routing_clause = " AND reference_number IS NOT NULL AND reference_number != '' AND ship_date IS NOT NULL AND carrier IS NOT NULL AND carrier != ''"

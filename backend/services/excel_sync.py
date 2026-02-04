@@ -1,13 +1,16 @@
 """Excel synchronization service."""
 
 import shutil
+import re
+import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, parse_qs
 
 from openpyxl import load_workbook
 
-from config import EXCEL_FILE_PATH, BACKUP_DIR
+from config import EXCEL_FILE_PATH, BACKUP_DIR, SHAREPOINT_EXCEL_URL
 from database import get_db
 from models import SyncResult
 
@@ -18,6 +21,52 @@ class ExcelSyncService:
     def __init__(self):
         self.excel_path = EXCEL_FILE_PATH
         self.backup_dir = BACKUP_DIR
+        self.sharepoint_url = SHAREPOINT_EXCEL_URL
+
+    def _convert_sharepoint_to_download_url(self, sharing_url: str) -> str:
+        """Convert a OneDrive/SharePoint sharing URL to a direct download URL."""
+        # Parse the sharing URL
+        # Format: https://domain-my.sharepoint.com/:x:/g/personal/user/ID?e=token
+        # Download: https://domain-my.sharepoint.com/personal/user/_layouts/15/download.aspx?share=ID
+
+        parsed = urlparse(sharing_url)
+
+        # Extract the path components
+        # /:x:/g/personal/zach_b_ellingsonmotorcars_com/IQCA6...
+        path_match = re.match(r'/:x:/g/personal/([^/]+)/([^?]+)', parsed.path)
+        if path_match:
+            user = path_match.group(1)
+            file_id = path_match.group(2)
+            download_url = f"{parsed.scheme}://{parsed.netloc}/personal/{user}/_layouts/15/download.aspx?share={file_id}"
+            return download_url
+
+        # If pattern doesn't match, try alternate approach - add download=1 parameter
+        if '?' in sharing_url:
+            return sharing_url + '&download=1'
+        return sharing_url + '?download=1'
+
+    def _download_from_sharepoint(self) -> Optional[Path]:
+        """Download Excel file from SharePoint/OneDrive and return local path."""
+        if not self.sharepoint_url:
+            return None
+
+        try:
+            download_url = self._convert_sharepoint_to_download_url(self.sharepoint_url)
+
+            # Download the file
+            response = requests.get(download_url, allow_redirects=True, timeout=60)
+            response.raise_for_status()
+
+            # Save to temp file
+            temp_path = self.backup_dir / "sharepoint_download.xlsx"
+            with open(temp_path, 'wb') as f:
+                f.write(response.content)
+
+            return temp_path
+
+        except Exception as e:
+            print(f"Failed to download from SharePoint: {e}")
+            return None
 
     def _create_backup(self) -> Path:
         """Create a backup of the Excel file."""
@@ -109,21 +158,30 @@ class ExcelSyncService:
 
     def import_from_excel(self) -> SyncResult:
         """Import data from Excel file into the database."""
-        if not self.excel_path.exists():
-            return SyncResult(
-                success=False,
-                message=f"Excel file not found: {self.excel_path}",
-                errors=[f"File not found: {self.excel_path}"]
-            )
-
         errors = []
         records_processed = 0
         wb = None
-        temp_path = self.backup_dir / "temp_import.xlsx"
+        temp_path = None
+        downloaded_from_sharepoint = False
 
         try:
-            # Create a temporary copy to avoid lock issues
-            shutil.copy2(self.excel_path, temp_path)
+            # Try SharePoint first
+            if self.sharepoint_url:
+                temp_path = self._download_from_sharepoint()
+                if temp_path and temp_path.exists():
+                    downloaded_from_sharepoint = True
+
+            # Fall back to local file
+            if not temp_path or not temp_path.exists():
+                if not self.excel_path.exists():
+                    return SyncResult(
+                        success=False,
+                        message=f"Excel file not found: {self.excel_path}",
+                        errors=[f"File not found: {self.excel_path}"]
+                    )
+                temp_path = self.backup_dir / "temp_import.xlsx"
+                # Create a temporary copy to avoid lock issues
+                shutil.copy2(self.excel_path, temp_path)
 
             wb = load_workbook(temp_path, read_only=True, data_only=True)
 
@@ -168,11 +226,12 @@ class ExcelSyncService:
 
                 conn.commit()
 
-            self._log_sync("import", "success", records_processed)
+            source_msg = "from SharePoint" if downloaded_from_sharepoint else "from local file"
+            self._log_sync("import", "success", records_processed, source_msg)
 
             return SyncResult(
                 success=True,
-                message=f"Successfully imported {records_processed} records",
+                message=f"Successfully imported {records_processed} records {source_msg}",
                 records_processed=records_processed,
                 errors=errors
             )
@@ -292,6 +351,10 @@ class ExcelSyncService:
             # OTHEROUTBOUND: Reference #, Order #, Customer, Ship Date, Carrier, Shipped, Actual Date, Pallets, Pro, Seal, Notes
             reference_number = str(row[0]) if row[0] else None
             order_number = str(row[1]) if row[1] else None
+
+            # Skip rows without order_number (column F in Excel)
+            if not order_number:
+                continue
             customer = str(row[2]) if row[2] else None
             ship_date = self._parse_date(row[3])
             carrier = str(row[4]) if row[4] else None
