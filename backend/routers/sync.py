@@ -85,6 +85,30 @@ async def get_sync_log(limit: int = 20):
         ]
 
 
+@router.get("/env-debug")
+async def get_env_debug():
+    """Debug endpoint to check environment variables."""
+    import os
+
+    # Get all env vars that start with GRAPH or are TEST_VAR
+    graph_vars = {k: v[:10] + "..." if v else "(empty)" for k, v in os.environ.items() if k.startswith("GRAPH")}
+    test_var = os.environ.get("TEST_VAR", "(not set)")
+
+    # Count total env vars
+    total_vars = len(os.environ)
+
+    # Check for common Azure vars to confirm env vars work at all
+    website_name = os.environ.get("WEBSITE_SITE_NAME", "(not set)")
+
+    return {
+        "total_env_vars": total_vars,
+        "website_name": website_name,
+        "test_var": test_var,
+        "graph_vars_found": graph_vars,
+        "all_var_names_with_graph": [k for k in os.environ.keys() if "GRAPH" in k.upper()],
+    }
+
+
 @router.get("/sharepoint-status")
 async def get_sharepoint_status():
     """Check if SharePoint upload is configured."""
