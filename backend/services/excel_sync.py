@@ -94,6 +94,9 @@ class ExcelSyncService:
             encoded_path = self.sharepoint_file_path.replace(" ", "%20")
             upload_url = f"https://graph.microsoft.com/v1.0/users/{self.sharepoint_user}/drive/root:/{encoded_path}:/content"
 
+            print(f"Upload URL: {upload_url}")
+            print(f"File size: {len(file_content)} bytes")
+
             headers = {
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -101,14 +104,23 @@ class ExcelSyncService:
 
             response = requests.put(upload_url, headers=headers, data=file_content, timeout=120)
 
+            print(f"Response status: {response.status_code}")
+            print(f"Response body: {response.text[:500] if response.text else '(empty)'}")
+
             if response.status_code in [200, 201]:
                 return True, "Successfully uploaded to SharePoint"
             else:
-                error_msg = response.json().get("error", {}).get("message", response.text)
-                return False, f"Upload failed: {error_msg}"
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("error", {}).get("message", "Unknown error")
+                    error_code = error_data.get("error", {}).get("code", "Unknown")
+                    return False, f"Upload failed ({response.status_code}): {error_code} - {error_msg}"
+                except:
+                    return False, f"Upload failed ({response.status_code}): {response.text[:200]}"
 
         except Exception as e:
-            return False, f"Upload error: {str(e)}"
+            import traceback
+            return False, f"Upload error: {str(e)} - {traceback.format_exc()[:300]}"
 
     def is_sharepoint_upload_configured(self) -> bool:
         """Check if SharePoint upload is properly configured."""
