@@ -678,13 +678,17 @@ class ExcelSyncService:
             sharepoint_status = ""
             uploaded_to_sharepoint = False
             if self.is_sharepoint_upload_configured():
+                print(f"Attempting SharePoint upload to user: {self.sharepoint_user}, path: {self.sharepoint_file_path}")
                 upload_success, upload_msg = self._upload_to_sharepoint(temp_path)
+                print(f"SharePoint upload result: success={upload_success}, msg={upload_msg}")
                 if upload_success:
                     sharepoint_status = " and uploaded to SharePoint"
                     uploaded_to_sharepoint = True
                 else:
                     errors.append(f"SharePoint upload failed: {upload_msg}")
-                    sharepoint_status = " (SharePoint upload failed)"
+                    sharepoint_status = f" (SharePoint upload failed: {upload_msg})"
+            else:
+                print("SharePoint upload not configured, skipping")
 
             # Try to save locally as backup (only if local path is accessible)
             local_saved = False
@@ -702,9 +706,11 @@ class ExcelSyncService:
             if not uploaded_to_sharepoint and not local_saved:
                 alt_path = self.backup_dir / f"LoadBoard_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
                 shutil.copy2(temp_path, alt_path)
+                error_detail = f" Errors: {'; '.join(errors)}" if errors else ""
+                self._log_sync("export", "partial", records_processed, f"Saved to backup.{error_detail}")
                 return SyncResult(
                     success=True,
-                    message=f"Exported {records_processed} records to backup: {alt_path}",
+                    message=f"Exported {records_processed} records to backup: {alt_path}.{error_detail}",
                     records_processed=records_processed,
                     errors=errors
                 )
