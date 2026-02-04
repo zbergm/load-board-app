@@ -1,1 +1,1 @@
-cd backend && python -m uvicorn main:app --host 0.0.0.0 --port 8000
+gunicorn --bind=0.0.0.0 --timeout 600 main:app -k uvicorn.workers.UvicornWorker
