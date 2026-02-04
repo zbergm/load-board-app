@@ -66,6 +66,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: python-app
+          path: deploy
+
+      - name: List downloaded files
+        run: |
+          echo "=== Directory structure ==="
+          ls -la deploy/
+          echo "=== Backend contents (if exists) ==="
+          ls -la deploy/backend/ 2>/dev/null || echo "No deploy/backend/ folder"
+          echo "=== Root of deploy ==="
+          find deploy -maxdepth 2 -type f | head -20
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -80,4 +90,4 @@ jobs:
         with:
           app-name: 'loadboardapptwo'
           slot-name: 'Production'
-          package: backend/
+          package: deploy/backend/
