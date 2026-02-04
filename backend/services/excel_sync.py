@@ -609,24 +609,31 @@ class ExcelSyncService:
 
     def export_to_excel(self) -> SyncResult:
         """Export database changes to the Excel file."""
-        if not self.excel_path.exists():
-            return SyncResult(
-                success=False,
-                message=f"Excel file not found: {self.excel_path}",
-                errors=[f"File not found: {self.excel_path}"]
-            )
-
         errors = []
         records_processed = 0
         wb = None
         temp_path = self.backup_dir / "temp_export.xlsx"
+        source_file = None
 
         try:
-            # Create backup first
-            self._create_backup()
+            # Try to get the source file - prefer SharePoint, fall back to local
+            if self.sharepoint_url:
+                source_file = self._download_from_sharepoint()
 
-            # Copy to temp file to avoid locking the original
-            shutil.copy2(self.excel_path, temp_path)
+            if not source_file or not source_file.exists():
+                # Fall back to local file
+                if not self.excel_path.exists():
+                    return SyncResult(
+                        success=False,
+                        message="Excel file not found. Configure SharePoint URL or ensure local file exists.",
+                        errors=["No source Excel file available"]
+                    )
+                source_file = self.excel_path
+                # Create backup of local file
+                self._create_backup()
+
+            # Copy source to temp file for editing
+            shutil.copy2(source_file, temp_path)
 
             # Work with the temp copy
             wb = load_workbook(temp_path)
@@ -666,31 +673,40 @@ class ExcelSyncService:
             wb.close()
             wb = None
 
-            # Check if original file is accessible before replacing
-            if not self._wait_for_file_access(self.excel_path):
-                # Can't access original, save to alternate location
-                alt_path = self.backup_dir / f"LoadBoard_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                shutil.copy2(temp_path, alt_path)
-                temp_path.unlink(missing_ok=True)
-                return SyncResult(
-                    success=True,
-                    message=f"Original file locked. Exported {records_processed} records to: {alt_path}",
-                    records_processed=records_processed,
-                    errors=["Original file was locked, saved to backup location"]
-                )
-
-            # Replace original with updated temp file (for local backup)
-            shutil.copy2(temp_path, self.excel_path)
-
             # Try to upload to SharePoint if configured
             sharepoint_status = ""
+            uploaded_to_sharepoint = False
             if self.is_sharepoint_upload_configured():
                 upload_success, upload_msg = self._upload_to_sharepoint(temp_path)
                 if upload_success:
                     sharepoint_status = " and uploaded to SharePoint"
+                    uploaded_to_sharepoint = True
                 else:
                     errors.append(f"SharePoint upload failed: {upload_msg}")
-                    sharepoint_status = " (SharePoint upload failed - saved locally)"
+                    sharepoint_status = " (SharePoint upload failed)"
+
+            # Try to save locally as backup (only if local path is accessible)
+            local_saved = False
+            if self.excel_path.parent.exists():
+                try:
+                    if self._wait_for_file_access(self.excel_path) or not self.excel_path.exists():
+                        shutil.copy2(temp_path, self.excel_path)
+                        local_saved = True
+                except Exception as e:
+                    # Local save failed, but that's OK if SharePoint worked
+                    if not uploaded_to_sharepoint:
+                        errors.append(f"Local save failed: {str(e)}")
+
+            # If neither worked, save to backup dir
+            if not uploaded_to_sharepoint and not local_saved:
+                alt_path = self.backup_dir / f"LoadBoard_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                shutil.copy2(temp_path, alt_path)
+                return SyncResult(
+                    success=True,
+                    message=f"Exported {records_processed} records to backup: {alt_path}",
+                    records_processed=records_processed,
+                    errors=errors
+                )
 
             temp_path.unlink(missing_ok=True)
 
