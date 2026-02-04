@@ -562,6 +562,9 @@ class ExcelSyncService:
                     count = self._export_outbound_sheet(cursor, sheet, "OTHER")
                     records_processed += count
 
+                # Commit excel_row updates for new records
+                conn.commit()
+
             # Save to temp file first
             wb.save(temp_path)
             wb.close()
@@ -627,80 +630,145 @@ class ExcelSyncService:
             # Clean up temp file
             temp_path.unlink(missing_ok=True)
 
+    def _find_next_available_row(self, sheet) -> int:
+        """Find the next empty row in a sheet (first row where column A is empty)."""
+        for row_num in range(2, sheet.max_row + 2):  # Start from row 2 (after header)
+            if sheet.cell(row=row_num, column=1).value is None:
+                return row_num
+        return sheet.max_row + 1
+
+    def _cell_value_matches(self, cell_value, db_value) -> bool:
+        """Check if Excel cell value matches database value."""
+        # Handle None/empty comparisons
+        if cell_value is None and db_value is None:
+            return True
+        if cell_value is None and db_value == "":
+            return True
+        if cell_value == "" and db_value is None:
+            return True
+        # Convert both to string for comparison
+        cell_str = str(cell_value).strip() if cell_value is not None else ""
+        db_str = str(db_value).strip() if db_value is not None else ""
+        return cell_str == db_str
+
+    def _update_cell_if_changed(self, sheet, row, col, new_value) -> bool:
+        """Update cell only if value has changed. Returns True if updated."""
+        current = sheet.cell(row=row, column=col).value
+        if not self._cell_value_matches(current, new_value):
+            sheet.cell(row=row, column=col, value=new_value)
+            return True
+        return False
+
     def _export_inbound_sheet(self, cursor, sheet, source: str) -> int:
         """Export inbound shipments to Excel sheet."""
         count = 0
+        new_records_to_update = []  # Track new records that need excel_row assigned
 
-        # Get records that have been modified since last sync
+        # Get ALL records for this source (both existing and new)
         cursor.execute("""
             SELECT * FROM inbound_shipments
-            WHERE source = ? AND excel_row IS NOT NULL
+            WHERE source = ?
         """, (source,))
         rows = cursor.fetchall()
 
         for row in rows:
             excel_row = row["excel_row"]
+            record_id = row["id"]
 
-            # Update cells in Excel based on source
+            # If no excel_row, this is a new record - find next available row
+            if excel_row is None:
+                excel_row = self._find_next_available_row(sheet)
+                new_records_to_update.append((excel_row, record_id))
+
+            # Update cells only if changed, based on source
             if source == "TP":
-                sheet.cell(row=excel_row, column=1, value=row["item_number"])
-                sheet.cell(row=excel_row, column=2, value=row["cases"])
-                sheet.cell(row=excel_row, column=3, value=row["po"])
-                sheet.cell(row=excel_row, column=4, value=row["carrier"])
-                sheet.cell(row=excel_row, column=5, value=row["bol_number"])
-                sheet.cell(row=excel_row, column=6, value=row["tp_receipt_number"])
-                sheet.cell(row=excel_row, column=7, value=row["ship_date"])
-                sheet.cell(row=excel_row, column=8, value="Yes" if row["received"] else "")
-                sheet.cell(row=excel_row, column=9, value=row["pallets"])
-                sheet.cell(row=excel_row, column=10, value=row["notes"])
+                self._update_cell_if_changed(sheet, excel_row, 1, row["item_number"])
+                self._update_cell_if_changed(sheet, excel_row, 2, row["cases"])
+                self._update_cell_if_changed(sheet, excel_row, 3, row["po"])
+                self._update_cell_if_changed(sheet, excel_row, 4, row["carrier"])
+                self._update_cell_if_changed(sheet, excel_row, 5, row["bol_number"])
+                self._update_cell_if_changed(sheet, excel_row, 6, row["tp_receipt_number"])
+                self._update_cell_if_changed(sheet, excel_row, 7, row["ship_date"])
+                self._update_cell_if_changed(sheet, excel_row, 8, "Yes" if row["received"] else "")
+                self._update_cell_if_changed(sheet, excel_row, 9, row["pallets"])
+                self._update_cell_if_changed(sheet, excel_row, 10, row["notes"])
             else:
-                sheet.cell(row=excel_row, column=1, value=row["item_number"])
-                sheet.cell(row=excel_row, column=2, value=row["cases"])
-                sheet.cell(row=excel_row, column=3, value=row["po"])
-                sheet.cell(row=excel_row, column=4, value=row["carrier"])
-                sheet.cell(row=excel_row, column=5, value=row["bol_number"])
-                sheet.cell(row=excel_row, column=6, value=row["ship_date"])
-                sheet.cell(row=excel_row, column=7, value="Yes" if row["received"] else "")
-                sheet.cell(row=excel_row, column=8, value=row["pallets"])
-                sheet.cell(row=excel_row, column=9, value=row["notes"])
+                self._update_cell_if_changed(sheet, excel_row, 1, row["item_number"])
+                self._update_cell_if_changed(sheet, excel_row, 2, row["cases"])
+                self._update_cell_if_changed(sheet, excel_row, 3, row["po"])
+                self._update_cell_if_changed(sheet, excel_row, 4, row["carrier"])
+                self._update_cell_if_changed(sheet, excel_row, 5, row["bol_number"])
+                self._update_cell_if_changed(sheet, excel_row, 6, row["ship_date"])
+                self._update_cell_if_changed(sheet, excel_row, 7, "Yes" if row["received"] else "")
+                self._update_cell_if_changed(sheet, excel_row, 8, row["pallets"])
+                self._update_cell_if_changed(sheet, excel_row, 9, row["notes"])
 
             count += 1
+
+        # Update excel_row for new records in database
+        for excel_row, record_id in new_records_to_update:
+            cursor.execute(
+                "UPDATE inbound_shipments SET excel_row = ? WHERE id = ?",
+                (excel_row, record_id)
+            )
 
         return count
 
     def _export_outbound_sheet(self, cursor, sheet, source: str) -> int:
         """Export outbound shipments to Excel sheet."""
         count = 0
+        new_records_to_update = []  # Track new records that need excel_row assigned
 
+        # Get ALL records for this source (both existing and new)
         cursor.execute("""
             SELECT * FROM outbound_shipments
-            WHERE source = ? AND excel_row IS NOT NULL
+            WHERE source = ?
         """, (source,))
         rows = cursor.fetchall()
 
         for row in rows:
             excel_row = row["excel_row"]
+            record_id = row["id"]
 
-            sheet.cell(row=excel_row, column=1, value=row["reference_number"])
-            sheet.cell(row=excel_row, column=2, value=row["order_number"])
-            sheet.cell(row=excel_row, column=3, value=row["customer"])
-            sheet.cell(row=excel_row, column=4, value=row["ship_date"])
-            sheet.cell(row=excel_row, column=5, value=row["carrier"])
-            sheet.cell(row=excel_row, column=6, value="Yes" if row["shipped"] else "")
+            # If no excel_row, this is a new record - find next available row
+            if excel_row is None:
+                excel_row = self._find_next_available_row(sheet)
+                new_records_to_update.append((excel_row, record_id))
+
+            # Determine shipped value for Excel
+            if row["shipped"]:
+                shipped_value = "Yes,Delayed" if row["delayed"] else "Yes"
+            else:
+                shipped_value = ""
+
+            # Update cells only if changed
+            self._update_cell_if_changed(sheet, excel_row, 1, row["reference_number"])
+            self._update_cell_if_changed(sheet, excel_row, 2, row["order_number"])
+            self._update_cell_if_changed(sheet, excel_row, 3, row["customer"])
+            self._update_cell_if_changed(sheet, excel_row, 4, row["ship_date"])
+            self._update_cell_if_changed(sheet, excel_row, 5, row["carrier"])
+            self._update_cell_if_changed(sheet, excel_row, 6, shipped_value)
 
             if source == "TP":
-                sheet.cell(row=excel_row, column=7, value=row["pallets"])
-                sheet.cell(row=excel_row, column=8, value=row["pro"])
-                sheet.cell(row=excel_row, column=9, value=row["seal"])
-                sheet.cell(row=excel_row, column=10, value=row["notes"])
-                sheet.cell(row=excel_row, column=11, value=row["pickup_time"])
+                self._update_cell_if_changed(sheet, excel_row, 7, row["pallets"])
+                self._update_cell_if_changed(sheet, excel_row, 8, row["pro"])
+                self._update_cell_if_changed(sheet, excel_row, 9, row["seal"])
+                self._update_cell_if_changed(sheet, excel_row, 10, row["notes"])
+                self._update_cell_if_changed(sheet, excel_row, 11, row["pickup_time"])
             else:
-                sheet.cell(row=excel_row, column=7, value=row["actual_date"])
-                sheet.cell(row=excel_row, column=8, value=row["pallets"])
-                sheet.cell(row=excel_row, column=9, value=row["pro"])
-                sheet.cell(row=excel_row, column=10, value=row["seal"])
-                sheet.cell(row=excel_row, column=11, value=row["notes"])
+                self._update_cell_if_changed(sheet, excel_row, 7, row["actual_date"])
+                self._update_cell_if_changed(sheet, excel_row, 8, row["pallets"])
+                self._update_cell_if_changed(sheet, excel_row, 9, row["pro"])
+                self._update_cell_if_changed(sheet, excel_row, 10, row["seal"])
+                self._update_cell_if_changed(sheet, excel_row, 11, row["notes"])
 
             count += 1
+
+        # Update excel_row for new records in database
+        for excel_row, record_id in new_records_to_update:
+            cursor.execute(
+                "UPDATE outbound_shipments SET excel_row = ? WHERE id = ?",
+                (excel_row, record_id)
+            )
 
         return count
