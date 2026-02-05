@@ -37,7 +37,7 @@ GRAPH_CLIENT_SECRET = os.environ.get("GRAPH_CLIENT_SECRET", "")
 # Example: "Desktop/Operations Data/Load Board 2026.xlsx"
 SHAREPOINT_FILE_PATH = os.environ.get(
     "SHAREPOINT_FILE_PATH",
-    "Desktop/Operations Data/Load Board 2026.xlsx"
+    "Documents/Desktop/Operations Data/Load Board 2026.xlsx"
 )
 
 # User principal name (email) for the OneDrive owner
