@@ -8,7 +8,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "data" / "loadboard.db"
 
 # Excel file path - local file (used if SHAREPOINT_EXCEL_URL is not set)
-EXCEL_FILE_PATH = Path(r"C:\Users\Zach\OneDrive - Ellingson Classic Cars\Desktop\Operations Data\Load Board 2026.xlsx")
+# On Azure/Linux, this path won't exist - SharePoint will be the primary source
+_local_excel_path = os.environ.get(
+    "LOCAL_EXCEL_PATH",
+    r"C:\Users\Zach\OneDrive - Ellingson Classic Cars\Desktop\Operations Data\Load Board 2026.xlsx"
+)
+EXCEL_FILE_PATH = Path(_local_excel_path) if os.name == 'nt' else Path("/nonexistent")
 
 # SharePoint/OneDrive Excel URL - set this to use cloud-hosted file
 # This should be a sharing link to the Excel file
@@ -38,7 +43,7 @@ SHAREPOINT_FILE_PATH = os.environ.get(
 # User principal name (email) for the OneDrive owner
 SHAREPOINT_USER = os.environ.get(
     "SHAREPOINT_USER",
-    "zach_b@ellingsonmotorcars.com"
+    "zach.b@ellingsonmotorcars.com"
 )
 
 # Backup directory for Excel files
