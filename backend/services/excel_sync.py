@@ -9,6 +9,7 @@ from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 
 from config import (
     EXCEL_FILE_PATH, BACKUP_DIR, SHAREPOINT_EXCEL_URL,
@@ -793,13 +794,67 @@ class ExcelSyncService:
         db_str = str(db_value).strip() if db_value is not None else ""
         return cell_str == db_str
 
-    def _update_cell_if_changed(self, sheet, row, col, new_value) -> bool:
+    def _format_date_for_excel(self, iso_date: str) -> Optional[str]:
+        """Convert ISO date (YYYY-MM-DD) to Excel format (MM-DD-YYYY)."""
+        if not iso_date:
+            return None
+        try:
+            # Parse ISO format and convert to MM-DD-YYYY
+            dt = datetime.strptime(iso_date, "%Y-%m-%d")
+            return dt.strftime("%m-%d-%Y")
+        except (ValueError, TypeError):
+            return iso_date  # Return as-is if not ISO format
+
+    def _normalize_date_for_comparison(self, value) -> Optional[str]:
+        """Normalize date value to YYYY-MM-DD for comparison."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.strftime("%Y-%m-%d")
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+            # Try MM-DD-YYYY format
+            try:
+                dt = datetime.strptime(value, "%m-%d-%Y")
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+            # Try YYYY-MM-DD format
+            try:
+                dt = datetime.strptime(value, "%Y-%m-%d")
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        return str(value) if value else None
+
+    def _update_cell_if_changed(self, sheet, row, col, new_value, is_date: bool = False, is_new_row: bool = False, is_notes_col: bool = False) -> bool:
         """Update cell only if value has changed. Returns True if updated."""
         current = sheet.cell(row=row, column=col).value
-        if not self._cell_value_matches(current, new_value):
-            sheet.cell(row=row, column=col, value=new_value)
-            return True
-        return False
+
+        # For dates, normalize both values for comparison
+        if is_date:
+            current_normalized = self._normalize_date_for_comparison(current)
+            new_normalized = self._normalize_date_for_comparison(new_value)
+            if current_normalized == new_normalized:
+                return False
+            # Format the date for Excel output
+            formatted_value = self._format_date_for_excel(new_value) if new_value else None
+            cell = sheet.cell(row=row, column=col, value=formatted_value)
+        else:
+            if self._cell_value_matches(current, new_value):
+                return False
+            cell = sheet.cell(row=row, column=col, value=new_value)
+
+        # Apply alignment for new rows
+        if is_new_row:
+            if is_notes_col:
+                cell.alignment = Alignment(horizontal='left', vertical='center')
+            else:
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+
+        return True
 
     def _export_inbound_sheet(self, cursor, sheet, source: str) -> int:
         """Export inbound shipments to Excel sheet."""
@@ -818,32 +873,33 @@ class ExcelSyncService:
             record_id = row["id"]
 
             # If no excel_row, this is a new record - find next available row
-            if excel_row is None:
+            is_new_row = excel_row is None
+            if is_new_row:
                 excel_row = self._find_next_available_row(sheet)
                 new_records_to_update.append((excel_row, record_id))
 
             # Update cells only if changed, based on source
             if source == "TP":
-                self._update_cell_if_changed(sheet, excel_row, 1, row["item_number"])
-                self._update_cell_if_changed(sheet, excel_row, 2, row["cases"])
-                self._update_cell_if_changed(sheet, excel_row, 3, row["po"])
-                self._update_cell_if_changed(sheet, excel_row, 4, row["carrier"])
-                self._update_cell_if_changed(sheet, excel_row, 5, row["bol_number"])
-                self._update_cell_if_changed(sheet, excel_row, 6, row["tp_receipt_number"])
-                self._update_cell_if_changed(sheet, excel_row, 7, row["ship_date"])
-                self._update_cell_if_changed(sheet, excel_row, 8, "Yes" if row["received"] else "")
-                self._update_cell_if_changed(sheet, excel_row, 9, row["pallets"])
-                self._update_cell_if_changed(sheet, excel_row, 10, row["notes"])
+                self._update_cell_if_changed(sheet, excel_row, 1, row["item_number"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 2, row["cases"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 3, row["po"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 4, row["carrier"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 5, row["bol_number"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 6, row["tp_receipt_number"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 7, row["ship_date"], is_date=True, is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 8, "Yes" if row["received"] else "", is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 9, row["pallets"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 10, row["notes"], is_new_row=is_new_row, is_notes_col=True)
             else:
-                self._update_cell_if_changed(sheet, excel_row, 1, row["item_number"])
-                self._update_cell_if_changed(sheet, excel_row, 2, row["cases"])
-                self._update_cell_if_changed(sheet, excel_row, 3, row["po"])
-                self._update_cell_if_changed(sheet, excel_row, 4, row["carrier"])
-                self._update_cell_if_changed(sheet, excel_row, 5, row["bol_number"])
-                self._update_cell_if_changed(sheet, excel_row, 6, row["ship_date"])
-                self._update_cell_if_changed(sheet, excel_row, 7, "Yes" if row["received"] else "")
-                self._update_cell_if_changed(sheet, excel_row, 8, row["pallets"])
-                self._update_cell_if_changed(sheet, excel_row, 9, row["notes"])
+                self._update_cell_if_changed(sheet, excel_row, 1, row["item_number"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 2, row["cases"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 3, row["po"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 4, row["carrier"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 5, row["bol_number"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 6, row["ship_date"], is_date=True, is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 7, "Yes" if row["received"] else "", is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 8, row["pallets"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 9, row["notes"], is_new_row=is_new_row, is_notes_col=True)
 
             count += 1
 
@@ -873,36 +929,38 @@ class ExcelSyncService:
             record_id = row["id"]
 
             # If no excel_row, this is a new record - find next available row
-            if excel_row is None:
+            is_new_row = excel_row is None
+            if is_new_row:
                 excel_row = self._find_next_available_row(sheet)
                 new_records_to_update.append((excel_row, record_id))
 
             # Determine shipped value for Excel
+            # "No" for unshipped, "Yes" for shipped, "Yes-Delayed" for shipped but late
             if row["shipped"]:
-                shipped_value = "Yes,Delayed" if row["delayed"] else "Yes"
+                shipped_value = "Yes-Delayed" if row["delayed"] else "Yes"
             else:
-                shipped_value = ""
+                shipped_value = "No"
 
             # Update cells only if changed
-            self._update_cell_if_changed(sheet, excel_row, 1, row["reference_number"])
-            self._update_cell_if_changed(sheet, excel_row, 2, row["order_number"])
-            self._update_cell_if_changed(sheet, excel_row, 3, row["customer"])
-            self._update_cell_if_changed(sheet, excel_row, 4, row["ship_date"])
-            self._update_cell_if_changed(sheet, excel_row, 5, row["carrier"])
-            self._update_cell_if_changed(sheet, excel_row, 6, shipped_value)
+            self._update_cell_if_changed(sheet, excel_row, 1, row["reference_number"], is_new_row=is_new_row)
+            self._update_cell_if_changed(sheet, excel_row, 2, row["order_number"], is_new_row=is_new_row)
+            self._update_cell_if_changed(sheet, excel_row, 3, row["customer"], is_new_row=is_new_row)
+            self._update_cell_if_changed(sheet, excel_row, 4, row["ship_date"], is_date=True, is_new_row=is_new_row)
+            self._update_cell_if_changed(sheet, excel_row, 5, row["carrier"], is_new_row=is_new_row)
+            self._update_cell_if_changed(sheet, excel_row, 6, shipped_value, is_new_row=is_new_row)
 
             if source == "TP":
-                self._update_cell_if_changed(sheet, excel_row, 7, row["pallets"])
-                self._update_cell_if_changed(sheet, excel_row, 8, row["pro"])
-                self._update_cell_if_changed(sheet, excel_row, 9, row["seal"])
-                self._update_cell_if_changed(sheet, excel_row, 10, row["notes"])
-                self._update_cell_if_changed(sheet, excel_row, 11, row["pickup_time"])
+                self._update_cell_if_changed(sheet, excel_row, 7, row["pallets"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 8, row["pro"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 9, row["seal"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 10, row["notes"], is_new_row=is_new_row, is_notes_col=True)
+                self._update_cell_if_changed(sheet, excel_row, 11, row["pickup_time"], is_new_row=is_new_row)
             else:
-                self._update_cell_if_changed(sheet, excel_row, 7, row["actual_date"])
-                self._update_cell_if_changed(sheet, excel_row, 8, row["pallets"])
-                self._update_cell_if_changed(sheet, excel_row, 9, row["pro"])
-                self._update_cell_if_changed(sheet, excel_row, 10, row["seal"])
-                self._update_cell_if_changed(sheet, excel_row, 11, row["notes"])
+                self._update_cell_if_changed(sheet, excel_row, 7, row["actual_date"], is_date=True, is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 8, row["pallets"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 9, row["pro"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 10, row["seal"], is_new_row=is_new_row)
+                self._update_cell_if_changed(sheet, excel_row, 11, row["notes"], is_new_row=is_new_row, is_notes_col=True)
 
             count += 1
 
